@@ -175,6 +175,8 @@ Watershed scale morphometry refers to the geometric characteristics of
 the watershed (i.e. basin shape) or the stream network itself
 (i.e. arrangements of the stream channels).
 
+## basin shape
+
 Basin Shape can be measured with a variety of indicied. Compactness
 coefficient (CmpC) is defined as the ratio of the watershed perimeter to
 the circumference of equivalent circular area. Elongation ratio (ElnR)
@@ -193,7 +195,9 @@ cats_2 <- cat_shp(network = network_2, NHDCatchments)
 cats_1
 ```
 
-the shape of the stream network involves measuring the arrangement of
+## Stream network shape
+
+The shape of the stream network involves measuring the arrangement of
 the channels. Bifurcation Ratio (Rb) is defined as the ratio of number
 of streams of a particular order (Nu) to number of streams of next
 higher order (Nu+i). Length Ratio (Rl) is defined as the ratio of mean
@@ -211,18 +215,8 @@ netshp_2 <- net_shp(network = network_2, vaa = vaa)
 netshp_1
 ```
 
-\#view data
-
 ``` r
-
-WS_SCALE <- data.frame(rbind(cbind(st_set_geometry(cats_1, NULL), netshp_1),
-                  cbind(st_set_geometry(cats_2, NULL), netshp_2)), row.names = NULL)
-head(WS_SCALE)
-```
-
-\#quick plot of watersheds
-
-``` r
+# Quick plot of watersheds
 p1 <- ggplot()+
   geom_sf(data = cats_1, color = "green")+
   geom_sf(data = network_1, color = "blue") +
@@ -235,4 +229,235 @@ p2 <- ggplot()+
 
 #install.packages("gridExtra")
 gridExtra::grid.arrange(p1, p2, nrow = 1)
+```
+
+``` r
+# Combine watershed scale morphometry  
+WS_SCALE <- data.frame(rbind(cbind(st_set_geometry(cats_1, NULL), netshp_1),
+                  cbind(st_set_geometry(cats_2, NULL), netshp_2)), row.names = NULL)
+head(WS_SCALE)
+```
+
+# COMID Scale Metrics
+
+COMID scale metrics refer to attributes of individual stream channels,
+such as their sinuosity or the angle of confluence
+
+## Channel shape
+
+``` r
+planform <- chn_geom(network = network_1, elevslope = elevslope)
+#drop the smooth for mean
+planform <- subset(planform, select = -c(MAXELEVSMO, MINELEVSMO))
+head(planform)
+```
+
+## confluence attributes
+
+``` r
+confl_attrs <- net_confl(network = network_1, vaa = vaa, flow = flow)
+head(confl_attrs)
+```
+
+``` r
+#quick plot of confluence
+ggplot()+
+  geom_sf(data = cats_1, color = "green")+
+  geom_sf(data = network_1, color = "blue") +
+  geom_sf(data = network_1[network_1$COMID %in%confl_attrs$COMID,], color = "black")+
+  geom_sf(data = network_1[network_1$COMID %in% sites_1$COMID,], color = "purple", lwd = 1.25)+
+  geom_sf(data = sites_1, color = "black") 
+
+confl_attrs[confl_attrs$COMID==sites_1$COMID, ]
+```
+
+# Incorporating StreamCat Data
+
+``` r
+#get streamcat lithology values for each COMID in the network
+lithology <- get_streamcat(comid = network_1$COMID, 
+                           strcat_path = "Data/StreamCat",
+                           csvfile = "Lithology", vpu = "17")
+
+#select columns with values
+lithology <- subset(lithology, 
+                    select = c("COMID", grep("Cat", names(lithology), value = T)))
+lithology <- lithology[,apply(lithology, 2, sum, na.rm = T)>0]
+
+#predicted biological condition
+biocond <- get_streamcat(comid = network_1$COMID, 
+                         strcat_path = "Data/StreamCat",
+                         csvfile = "NRSA_PredictedBioCondition", 
+                         vpu = "17")
+biocond <- biocond[,c("COMID", "prG_BMMI")]
+```
+
+``` r
+#clean COMID scale data
+COMID_SCALE <- Reduce(function(x,y) merge(x, y, by = "COMID", all.x = T), 
+                      list(planform, confl_attrs, lithology, biocond))
+
+#some reaches are not directly downstream of confluence 
+x<-COMID_SCALE[,names(confl_attrs)]
+#suppress invalid factor level on tributary class 
+suppressWarnings(x[is.na(x)]<-0)
+#update levels 
+levels(x$Confl_class)<-c(levels(x$Confl_class), "0.0")
+x$Confl_class[is.na(x$Confl_class)] <- "0.0"
+COMID_SCALE[,names(confl_attrs)]<-x
+rm(x)
+head(COMID_SCALE)
+```
+
+# Reach scale metrics
+
+Reaches are divisions of NHDPlus COMID
+
+## Creating Stream Network Reaches
+
+``` r
+#split NHDPlusV2 COMIDs into 2 reaches (i.e. n=2)
+net_rch <- net_sample(network = network_1, vaa = vaa, n = 2, what = "reaches", keep.divergent = F)
+
+#create point at midpoint of reaches
+net_pts <- net_sample(network_1, vaa, n = 2, what = "midpoints", keep.divergent = F)
+
+#create lateral transects at each midpoint
+net_trn <- net_sample(network_1, vaa, n = 2, what = "transects", 
+                      NHDCatchments = NHDCatchments, keep.divergent = F)
+```
+
+``` r
+#quick plot of watersheds
+p1 <- ggplot()+
+  geom_sf(data = cats_1, color = "green")+
+  geom_sf(data = net_rch, color = "blue") +
+  geom_sf(data = net_pts, color = "black")
+
+p2 <- ggplot()+
+  geom_sf(data = cats_1, color = "green")+
+  geom_sf(data = net_rch, color = "blue") +
+  geom_sf(data = net_trn, color = "black")
+
+#install.packages("gridExtra")
+gridExtra::grid.arrange(p1, p2, nrow = 1)
+```
+
+## extract data at midpoints and along transects
+
+``` r
+#typically these data are at higher (finer) resolution 
+#than NHDPlus COMID
+r <- raster("Data/AGDD_30yrAVG_365")
+agdd <- data.frame(COMID = net_pts$COMID, 
+                   PointID = net_pts$PointID,
+                   AGDD = raster::extract(r, 
+                                          st_coordinates(
+                                            st_transform(net_pts, 
+                                                         crs = crs(r)))))
+
+
+#Valley width is lenght of lateral transect
+valley_width<-data.frame(COMID = net_trn$COMID,
+                         PointID = net_trn$PointID, 
+                         vln = units::set_units(st_length(net_trn),NULL))
+```
+
+``` r
+#merge data
+REACH_SCALE <- merge(agdd, valley_width, by = c("COMID", "PointID"), all.x = T)
+head(REACH_SCALE)
+```
+
+# Idenfitying “Patches” within a Stream Network
+
+## combine Watershed, COMID, and Reach data
+
+``` r
+#combine multiscale data
+StrNet_data <- cbind(WS_SCALE[1,], 
+                     merge(COMID_SCALE, REACH_SCALE, by = "COMID", 
+                           all.x = T))
+#select variables for clustering
+StrNet_vars <- names(StrNet_data)[!names(StrNet_data) %in% 
+                                    c("COMID", "PointID", 
+                                      "prG_BMMI", "Class", 
+                                      "CatPctFull","Rl_rsq",
+                                      "Ra_rsq","Rb_rsq")]
+#Use complete cases
+StrNet_data <- StrNet_data[complete.cases(StrNet_data[,StrNet_vars]),]
+
+head(StrNet_data[,c("COMID", "PointID", StrNet_vars)])
+```
+
+## Clustering stream network data
+
+``` r
+#calculate dissimiilarity - gower allows for mixed data
+d <- daisy(StrNet_data[,StrNet_vars], metric = "gower")
+
+#heirarchal clustering using wards method   
+cl <- agnes(d, method = "ward")
+```
+
+``` r
+#view dendrogram
+plot(cl, which.plots = 2)
+
+#define 5 groups of reaches
+StrNet_data$grps <- cutree(cl, 5)
+```
+
+``` r
+#plot Cluster Results
+#merge results witht the sampled reaches 
+#retain all.x = T because some reaches were missing 
+#data remained unclassified
+net <- merge(net_rch, 
+             StrNet_data[,c("PointID", "COMID", "prG_BMMI", "grps")], 
+             by = c("COMID", "PointID"), all.x = T)
+
+#update sites that could not be included in classification because
+#missing data to 0
+net$grps[is.na(net$grps)] <- 0
+
+p1 <- ggplot()+
+  geom_sf(data = net, color = net$grps + 1)
+
+gridExtra::grid.arrange(p1, nrow = 1)
+```
+
+# Quantifying Spatial Pattern
+
+Spatial pattern can refer to composition of configuration of habitat
+patches
+
+## composition (Class scale)
+
+``` r
+#merge adjacent habitat patches of the same type 
+net_HGP <- merge_lines(lines = st_transform(net, 5070), groupName = "grps")
+
+#create example composition metrics network 
+HGP_cmp <- do.call(rbind,
+                      lapply(split(net_HGP, net_HGP$grps), 
+                             function(x) data.frame(patch = unique(x$grps), 
+                                                    num = nrow(x), 
+                                                    tlen = sum(st_length(x)),
+                                                    meanlen = mean(st_length(x)))))
+HGP_cmp
+```
+
+## Configuration (class scale)
+
+``` r
+
+#function sf_to_tidygraph adapted from https://www.r-spatial.org/r/2019/09/26/spatial-networks.html Enables measurement of watercourse distance between habitat patches within the stream network
+
+graph <- sf_to_tidygraph(st_transform(net, 5070), directed = F)
+HGP_cnf <- patch_dist(graph, net_HGP, groupName = "grps", patch = "2")
+
+DCI_dist(plen_i = HGP_cnf$patch_i_len, 
+         plen_j = HGP_cnf$patch_j_len, 
+         dist_ij = HGP_cnf$d, mu = 12000)
 ```
