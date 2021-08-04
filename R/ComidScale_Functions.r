@@ -93,8 +93,6 @@ chn_geom <- function (network, elevslope){
 #'
 #' confluence class is the stream order of each tributary in the confluence
 #'
-#' @examples
-
 #' @export
 
 net_confl <- function (network, vaa, flow){
