@@ -57,6 +57,8 @@ library(gridExtra)
 
 ## Download data
 
+NHDPlusv2 provides digital stream network and catchments
+
 ``` r
 #use NHDPlusV2 data from VPU 17 
 #https://www.epa.gov/waterdata/nhdplus-pacific-northwest-data-vector-processing-unit-17
@@ -75,17 +77,21 @@ archive_extract(archive("Data/NHDPLUSV2/NHDPlusV21_PN_17_NHDPlusAttributes_10.7z
 #catchment files were unavailable at NHDPlusV2 page
 #download.file(mode = "wb")
 #archive_extract(archive(), dir = "Data/NHDPLUSV2")
+```
 
+StreamCat dataset provides data at COMID scale
+
+``` r
 #download StreamCat (filename = NULL, downloads all files)
 #https://www.epa.gov/national-aquatic-resource-surveys/streamcat-metrics-and-definitions
 StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "NRSA_PredictedBioCondition")
 StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "Lithology")
 StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "NLCD2006RipBuf100_Region")
+```
 
-#download NRSA site information 
-download.file("https://www.epa.gov/sites/production/files/2021-04/nrsa_1819_site_information_-_data.csv",
-              "Data/nrsa_1819_site_information_-_data.csv", mode = "wb")
+example data for reach scale
 
+``` r
 #download Ancillary data - Accumulated Degree days  >32degF
 url <- paste0("http://geoserver.usanpn.org/geoserver/gdd/wcs?service=WCS&",
               "version=2.0.1&",
@@ -93,6 +99,14 @@ url <- paste0("http://geoserver.usanpn.org/geoserver/gdd/wcs?service=WCS&",
               "subset=http://www.opengis.net/def/axis/OGC/0/elevation(", 365,")&",
               "format=image/geotiff")
 download.file(url, destfile = paste0("Data/AGDD_30yrAVG_", 365) , method = "libcurl", mode = "wb")
+```
+
+Spatially balanced sample of stream network outlets
+
+``` r
+#download NRSA site information 
+download.file("https://www.epa.gov/sites/production/files/2021-04/nrsa_1819_site_information_-_data.csv",
+              "Data/nrsa_1819_site_information_-_data.csv", mode = "wb")
 ```
 
 ## Read NHDPlusV2 Files
@@ -119,13 +133,16 @@ names(vpu_ls) <- vpu_poly$VPUID
 
 #select outlets in vpu 17
 outlets <- outlets[vpu_ls[["17"]],]
+```
 
+``` r
+#quick plot
 ggplot()+
 geom_sf(data = vpu_poly, color = "blue") +
   geom_sf(data = outlets, color = "black")
 ```
 
-\#find NHDPlus COMID’s near sampling point
+## Find Nearest NHDPlus COMID
 
 ``` r
 #returns all nhdplus COMID within the maxdist of a buffer
@@ -138,16 +155,15 @@ outlets$COMID[comids$index] <- comids$COMID
 head(comids)
 ```
 
-\#Delineate network upstream of a comid
+## Delineate Upstream Network
 
 ``` r
 upstr_comid_1 <- net_delin(comid = 24423157, flow = flow, vaa = vaa)
 upstr_comid_2 <- net_delin(comid = 947100116, flow = flow, vaa = vaa)
 ```
 
-\#quick plot of Stream Networks
-
 ``` r
+#quick plot of Stream Networks
 #select outlets
 sites_1 <- outlets[outlets$COMID == 24423157, ] 
 sites_2 <- outlets[outlets$COMID == 947100116, ] 
@@ -175,7 +191,7 @@ Watershed scale morphometry refers to the geometric characteristics of
 the watershed (i.e. basin shape) or the stream network itself
 (i.e. arrangements of the stream channels).
 
-## basin shape
+## Basin Shape
 
 Basin Shape can be measured with a variety of indicied. Compactness
 coefficient (CmpC) is defined as the ratio of the watershed perimeter to
@@ -195,7 +211,7 @@ cats_2 <- cat_shp(network = network_2, NHDCatchments)
 cats_1
 ```
 
-## Stream network shape
+## Stream Network Shape
 
 The shape of the stream network involves measuring the arrangement of
 the channels. Bifurcation Ratio (Rb) is defined as the ratio of number
@@ -243,7 +259,7 @@ head(WS_SCALE)
 COMID scale metrics refer to attributes of individual stream channels,
 such as their sinuosity or the angle of confluence
 
-## Channel shape
+## Channel Shape
 
 ``` r
 planform <- chn_geom(network = network_1, elevslope = elevslope)
@@ -252,7 +268,7 @@ planform <- subset(planform, select = -c(MAXELEVSMO, MINELEVSMO))
 head(planform)
 ```
 
-## confluence attributes
+## Confluence Attributes
 
 ``` r
 confl_attrs <- net_confl(network = network_1, vaa = vaa, flow = flow)
@@ -271,7 +287,7 @@ ggplot()+
 confl_attrs[confl_attrs$COMID==sites_1$COMID, ]
 ```
 
-# Incorporating StreamCat Data
+## Adding StreamCat Data
 
 ``` r
 #get streamcat lithology values for each COMID in the network
@@ -452,7 +468,9 @@ HGP_cmp
 
 ``` r
 
-#function sf_to_tidygraph adapted from https://www.r-spatial.org/r/2019/09/26/spatial-networks.html Enables measurement of watercourse distance between habitat patches within the stream network
+#function sf_to_tidygraph adapted from #https://www.r-spatial.org/r/2019/09/26/spatial-networks.html 
+#Enables measurement of watercourse distance between 
+#habitat patches within the stream network
 
 graph <- sf_to_tidygraph(st_transform(net, 5070), directed = F)
 HGP_cnf <- patch_dist(graph, net_HGP, groupName = "grps", patch = "2")

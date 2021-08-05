@@ -56,6 +56,8 @@ library(gridExtra)
 # Data Preparation
 
 ## Download data
+
+NHDPlusv2 provides digital stream network and catchments
 ```{r eval = F}
 #use NHDPlusV2 data from VPU 17 
 #https://www.epa.gov/waterdata/nhdplus-pacific-northwest-data-vector-processing-unit-17
@@ -74,17 +76,19 @@ archive_extract(archive("Data/NHDPLUSV2/NHDPlusV21_PN_17_NHDPlusAttributes_10.7z
 #catchment files were unavailable at NHDPlusV2 page
 #download.file(mode = "wb")
 #archive_extract(archive(), dir = "Data/NHDPLUSV2")
+```
 
+StreamCat dataset provides data at COMID scale
+```{r eval = F}
 #download StreamCat (filename = NULL, downloads all files)
 #https://www.epa.gov/national-aquatic-resource-surveys/streamcat-metrics-and-definitions
 StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "NRSA_PredictedBioCondition")
 StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "Lithology")
 StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "NLCD2006RipBuf100_Region")
+```
 
-#download NRSA site information 
-download.file("https://www.epa.gov/sites/production/files/2021-04/nrsa_1819_site_information_-_data.csv",
-              "Data/nrsa_1819_site_information_-_data.csv", mode = "wb")
-
+example data for reach scale
+```{r eval = F}
 #download Ancillary data - Accumulated Degree days  >32degF
 url <- paste0("http://geoserver.usanpn.org/geoserver/gdd/wcs?service=WCS&",
               "version=2.0.1&",
@@ -93,6 +97,14 @@ url <- paste0("http://geoserver.usanpn.org/geoserver/gdd/wcs?service=WCS&",
               "format=image/geotiff")
 download.file(url, destfile = paste0("Data/AGDD_30yrAVG_", 365) , method = "libcurl", mode = "wb")
 ```
+
+Spatially balanced sample of stream network outlets 
+```{r eval = F}
+#download NRSA site information 
+download.file("https://www.epa.gov/sites/production/files/2021-04/nrsa_1819_site_information_-_data.csv",
+              "Data/nrsa_1819_site_information_-_data.csv", mode = "wb")
+```
+
 
 ## Read NHDPlusV2 Files
 ```{r eval = F}
@@ -116,14 +128,16 @@ names(vpu_ls) <- vpu_poly$VPUID
 
 #select outlets in vpu 17
 outlets <- outlets[vpu_ls[["17"]],]
+```
 
+```{r eval = F}
+#quick plot
 ggplot()+
 geom_sf(data = vpu_poly, color = "blue") +
   geom_sf(data = outlets, color = "black")
 ```
 
-
-#find NHDPlus COMID's near sampling point
+## Find Nearest NHDPlus COMID 
 ```{r eval = F}
 #returns all nhdplus COMID within the maxdist of a buffer
 comids <- find_comid(pts = outlets, NHDFlowline, maxdist = 200)
@@ -135,15 +149,14 @@ outlets$COMID[comids$index] <- comids$COMID
 head(comids)
 ```
 
-
-#Delineate network upstream of a comid
+## Delineate Upstream Network
 ```{r eval = F}
 upstr_comid_1 <- net_delin(comid = 24423157, flow = flow, vaa = vaa)
 upstr_comid_2 <- net_delin(comid = 947100116, flow = flow, vaa = vaa)
 ```
 
-#quick plot of Stream Networks
 ```{r eval = F}
+#quick plot of Stream Networks
 #select outlets
 sites_1 <- outlets[outlets$COMID == 24423157, ] 
 sites_2 <- outlets[outlets$COMID == 947100116, ] 
@@ -170,7 +183,7 @@ gridExtra::grid.arrange(p1, p2, nrow = 1)
 
 Watershed scale morphometry refers to the geometric characteristics of the watershed (i.e. basin shape) or the stream network itself (i.e. arrangements of the stream channels). 
 
-## basin shape
+## Basin Shape
 Basin Shape can be measured with a variety of indicied. Compactness coefficient (CmpC) is defined as the ratio of the watershed perimeter to the circumference of equivalent circular area. Elongation ratio (ElnR) is defined as the ratio of diameter of a circle of the same area as the watershed to the maximum watershed length. The numerical value varies from 0 (in highly elongated shape) to 1 (in circular shape). Circulatory ratio (CrcR) is defined as the ratio of watershed area to the area of the circle having the same perimeter as the watershed perimeter. The numeric value may vary in between 0 (in line) and 1 (in a circle). see http://www.jnkvv.org/PDF/04042020192203Geomorphology%20of%20Watershed.pdf
 
 
@@ -181,7 +194,7 @@ cats_2 <- cat_shp(network = network_2, NHDCatchments)
 cats_1
 ```
 
-## Stream network shape
+## Stream Network Shape
 The shape of the stream network involves measuring the arrangement of the channels. Bifurcation Ratio (Rb) is defined as the ratio of number of streams of a particular order (Nu) to number of streams of next higher order (Nu+i). Length Ratio (Rl) is defined as the ratio of mean stream length (Lu) of a particular stream order to mean stream length of the next lower order (Lu-1). Area Ratio: It is defined as the ratio of mean catchment area (Lu) of a particular stream order to mean catchment area of the next lower order (Lu-1). For a stream network I estimate these values from geometric relationship between the ratio and a given order. 
 
 ```{r eval = F}
@@ -220,7 +233,7 @@ head(WS_SCALE)
 # COMID Scale Metrics 
 COMID scale metrics refer to attributes of individual stream channels, such as their sinuosity or the angle of confluence
 
-## Channel shape
+## Channel Shape
 ```{r eval = F}
 planform <- chn_geom(network = network_1, elevslope = elevslope)
 #drop the smooth for mean
@@ -228,7 +241,7 @@ planform <- subset(planform, select = -c(MAXELEVSMO, MINELEVSMO))
 head(planform)
 ```
 
-## confluence attributes 
+## Confluence Attributes 
 ```{r eval = F}
 confl_attrs <- net_confl(network = network_1, vaa = vaa, flow = flow)
 head(confl_attrs)
@@ -247,7 +260,7 @@ confl_attrs[confl_attrs$COMID==sites_1$COMID, ]
 ```
 
 
-# Incorporating StreamCat Data
+## Adding StreamCat Data
 ```{r eval = F}
 #get streamcat lithology values for each COMID in the network
 lithology <- get_streamcat(comid = network_1$COMID, 
@@ -424,7 +437,9 @@ HGP_cmp
 ## Configuration (class scale)
 ```{r eval = F}
 
-#function sf_to_tidygraph adapted from https://www.r-spatial.org/r/2019/09/26/spatial-networks.html Enables measurement of watercourse distance between habitat patches within the stream network
+#function sf_to_tidygraph adapted from #https://www.r-spatial.org/r/2019/09/26/spatial-networks.html 
+#Enables measurement of watercourse distance between 
+#habitat patches within the stream network
 
 graph <- sf_to_tidygraph(st_transform(net, 5070), directed = F)
 HGP_cnf <- patch_dist(graph, net_HGP, groupName = "grps", patch = "2")
