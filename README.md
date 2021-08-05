@@ -7,30 +7,30 @@
 
 <!-- badges: end -->
 
-The goal of MMASN is to facilitate the measurement of morphometric
-(i.e. geometric) characteristics and spatial composition and
-configuration of habitat patches within stream networks
+The goal of MMASN is to facilitate morphometric analysis of stream
+networks and provide landscape metrics that quantify spatial pattern of
+habitat patches in dendritic networks. These functions rely on data
+provide by the [National Hydrography Dataset Plus Version 2;
+NHDPlusv2](https://www.epa.gov/waterdata/get-nhdplus-national-hydrography-dataset-plus-data).
 
-## Installation
+# Installation
 
-The development version can be installed from
-[GitHub](https://github.com/) with:
+This Package is still under development but can be installed from
+[GitHub](https://github.com/):
 
 ``` r
 # install.packages("devtools")
 devtools::install_github("dkopp3/MMASN")
 ```
 
-## Example
+# Example
 
-In this example I’ll the demonstrate the functionality of MMASN by 1)
-Downloading Data from the National Hydrography Dataset Plus Version 2
-and ancillary data sources, and 2) measuring Watershed Scale, COMID
-Scale and Reach Scale Morphometry. Then using these values, I’ll use a
-clustering analysis to identify habitat patches with in stream networks
-baised on their morphometry. Finally, I’ll quantify the spatial pattern
-(Composition & Configuration) of these habitat pataches with landscape
-metrics.
+Here, I download data from the NHDPlusV2 and optional data sources. I
+then use MMASN to measure watershed-, NHDPlus COMID- and reach- scale
+morphometry and demonstrate how these values can be used to identify
+habitat patches in stream networks with hierarchical clustering.
+Finally, I quantify the spatial pattern of these habitat patches using
+landscape metrics developed for dendritic stream networks.
 
 ``` r
 library(MMASN)
@@ -57,7 +57,7 @@ library(gridExtra)
 
 ## Download data
 
-NHDPlusv2 provides digital stream network and catchments
+NHDPlusv2 (Required, digital stream network and catchments)
 
 ``` r
 #use NHDPlusV2 data from VPU 17 
@@ -79,7 +79,7 @@ archive_extract(archive("Data/NHDPLUSV2/NHDPlusV21_PN_17_NHDPlusAttributes_10.7z
 #archive_extract(archive(), dir = "Data/NHDPLUSV2")
 ```
 
-StreamCat dataset provides data at COMID scale
+StreamCat (optional, COMID Scale values)
 
 ``` r
 #download StreamCat (filename = NULL, downloads all files)
@@ -89,10 +89,12 @@ StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "Lithology")
 StreamCat_download(path = "Data/StreamCat", vpu = "17", filename = "NLCD2006RipBuf100_Region")
 ```
 
-example data for reach scale
+Average accumulated growing degree days (Optional, Reach scale dataset
+values)
 
 ``` r
-#download Ancillary data - Accumulated Degree days  >32degF
+#download Ancillary data - Accumulated Degree days >32degF
+#https://www.usanpn.org/data/agdd_maps
 url <- paste0("http://geoserver.usanpn.org/geoserver/gdd/wcs?service=WCS&",
               "version=2.0.1&",
               "request=GetCoverage&CoverageId=gdd:30yr_avg_agdd&",
@@ -101,10 +103,11 @@ url <- paste0("http://geoserver.usanpn.org/geoserver/gdd/wcs?service=WCS&",
 download.file(url, destfile = paste0("Data/AGDD_30yrAVG_", 365) , method = "libcurl", mode = "wb")
 ```
 
-Spatially balanced sample of stream network outlets
+Stream network outlets
+(Required)
 
 ``` r
-#download NRSA site information 
+#download Sampling locations from the National Rivers and Streams Assessment
 download.file("https://www.epa.gov/sites/production/files/2021-04/nrsa_1819_site_information_-_data.csv",
               "Data/nrsa_1819_site_information_-_data.csv", mode = "wb")
 ```
@@ -120,15 +123,29 @@ NHDFlowline <- sf::st_zm(NHDFlowline, what = "ZM", drop = T)
 NHDCatchments <- sf::read_sf("Data/NHDPLUSV2/NHDPlusPN/NHDPlus17/NHDPlusCatchment/Catchment.shp")
 ```
 
-## Identify network outlets
+## Select stream network outlets
 
 ``` r
+#read in file 
 outlets <- read.csv("Data/nrsa_1819_site_information_-_data.csv")
-outlets <- unique(subset(outlets, select = c("UNIQUE_ID","COMID","LON_DD83","LAT_DD83")))
-outlets <- sf::st_as_sf(outlets, coords = c("LON_DD83","LAT_DD83"), crs = 4269)
 
+#select unique values 
+outlets <- unique(subset(outlets, 
+                         select = c("UNIQUE_ID", "COMID",
+                                    "LON_DD83","LAT_DD83")))
+#create sf object
+outlets <- sf::st_as_sf(outlets, 
+                        coords = c("LON_DD83","LAT_DD83"), 
+                        crs = 4269)
+```
+
+``` r
+#read in NHDPlusV2 vector processing unit (vpu)
 vpu_poly <- sf::read_sf("Data/VPU_NAD83.shp")
-vpu_ls <- sf::st_contains(st_transform(vpu_poly, crs = 5070), st_transform(outlets, crs = 5070))
+
+#associate outlets with vpu polugons
+vpu_ls <- sf::st_contains(st_transform(vpu_poly, crs = 5070), 
+                          st_transform(outlets, crs = 5070))
 names(vpu_ls) <- vpu_poly$VPUID
 
 #select outlets in vpu 17
@@ -144,18 +161,27 @@ geom_sf(data = vpu_poly, color = "blue") +
 
 ## Find Nearest NHDPlus COMID
 
+In many instances the sampling point may not completely align with the
+NHDPlusV2 flowline. The find\_comid() function returns a list of length
+outlets, with each element containing the COMID’s within a given buffer
+distance.
+
 ``` r
-#returns all nhdplus COMID within the maxdist of a buffer
+#returns all nhdplus COMID within the maxdist buffer
 comids <- find_comid(pts = outlets, NHDFlowline, maxdist = 200)
 
-#select closest
+#select closest COMID for this ecample
 comids <- do.call(rbind, lapply(comids, function(x) x[which.min(x$dist_m), ]))
 
+#assign COMID value
 outlets$COMID[comids$index] <- comids$COMID
 head(comids)
 ```
 
 ## Delineate Upstream Network
+
+net\_delin extracts all the COMID’s upstream of a given COMID. In this
+example we delineate the stream network upstream of two comids
 
 ``` r
 upstr_comid_1 <- net_delin(comid = 24423157, flow = flow, vaa = vaa)
@@ -164,11 +190,12 @@ upstr_comid_2 <- net_delin(comid = 947100116, flow = flow, vaa = vaa)
 
 ``` r
 #quick plot of Stream Networks
+
 #select outlets
 sites_1 <- outlets[outlets$COMID == 24423157, ] 
 sites_2 <- outlets[outlets$COMID == 947100116, ] 
 
-#extract flowlines from NHDPlus
+#extract flowlines from NHDPlus via simple matching
 network_1 <- NHDFlowline[NHDFlowline$COMID%in%upstr_comid_1, ]
 network_2 <- NHDFlowline[NHDFlowline$COMID%in%upstr_comid_2, ]
 
@@ -187,22 +214,26 @@ gridExtra::grid.arrange(p1, p2, nrow = 1)
 
 # Watershed Scale Morphometry
 
-Watershed scale morphometry refers to the geometric characteristics of
-the watershed (i.e. basin shape) or the stream network itself
-(i.e. arrangements of the stream channels).
+Watershed scale morphometry refers to indices that quantify the shape of
+the watershed (i.e. land area surrounding the entire stream network) or
+the stream network itself.
 
 ## Basin Shape
 
-Basin Shape can be measured with a variety of indicied. Compactness
-coefficient (CmpC) is defined as the ratio of the watershed perimeter to
-the circumference of equivalent circular area. Elongation ratio (ElnR)
-is defined as the ratio of diameter of a circle of the same area as the
-watershed to the maximum watershed length. The numerical value varies
-from 0 (in highly elongated shape) to 1 (in circular shape). Circulatory
-ratio (CrcR) is defined as the ratio of watershed area to the area of
-the circle having the same perimeter as the watershed perimeter. The
-numeric value may vary in between 0 (in line) and 1 (in a circle). see
-<http://www.jnkvv.org/PDF/04042020192203Geomorphology%20of%20Watershed.pdf>
+Basin Shape includes: Compactness coefficient (CmpC), defined as the
+ratio of the watershed perimeter to the circumference of equivalent
+circular area.
+
+Elongation ratio (ElnR), defined as the ratio of diameter of a circle of
+the same area as the watershed to the maximum watershed length. The
+numerical value varies from 0 (in highly elongated shape) to 1 (in
+circular shape).
+
+Circulatory ratio (CrcR), defined as the ratio of watershed area to the
+area of the circle having the same perimeter as the watershed perimeter.
+The numeric value may vary in between 0 (in line) and 1 (in a circle).
+[see for more
+information](http://www.jnkvv.org/PDF/04042020192203Geomorphology%20of%20Watershed.pdf)
 
 ``` r
 #calculate basin shape metrics
@@ -213,19 +244,23 @@ cats_1
 
 ## Stream Network Shape
 
-The shape of the stream network involves measuring the arrangement of
-the channels. Bifurcation Ratio (Rb) is defined as the ratio of number
-of streams of a particular order (Nu) to number of streams of next
-higher order (Nu+i). Length Ratio (Rl) is defined as the ratio of mean
-stream length (Lu) of a particular stream order to mean stream length of
-the next lower order (Lu-1). Area Ratio: It is defined as the ratio of
-mean catchment area (Lu) of a particular stream order to mean catchment
-area of the next lower order (Lu-1). For a stream network I estimate
-these values from geometric relationship between the ratio and a given
-order.
+Stream network shape includes: Bifurcation Ratio (Rb) is defined as the
+ratio of number of streams of a particular order (Nu) to number of
+streams of next higher order (Nu+i).
+
+Length Ratio (Rl) is defined as the ratio of mean stream length (Lu) of
+a particular stream order to mean stream length of the next lower order
+(Lu-1).
+
+Area Ratio is defined as the ratio of mean catchment area (Lu) of a
+particular stream order to mean catchment area of the next lower order
+(Lu-1).
+
+These values are estimated from the geometric relationship between the
+ratio and a given order.
 
 ``` r
-#calcualte stream network characteristics
+#calcualte stream network characteristics for two stream networks
 netshp_1 <- net_shp(network = network_1, vaa = vaa)
 netshp_2 <- net_shp(network = network_2, vaa = vaa)
 netshp_1
@@ -248,27 +283,49 @@ gridExtra::grid.arrange(p1, p2, nrow = 1)
 ```
 
 ``` r
-# Combine watershed scale morphometry  
-WS_SCALE <- data.frame(rbind(cbind(st_set_geometry(cats_1, NULL), netshp_1),
-                  cbind(st_set_geometry(cats_2, NULL), netshp_2)), row.names = NULL)
+# Combine watershed scale morphometry into dataframe for later use 
+WS_SCALE <- data.frame(rbind(
+  cbind(st_set_geometry(cats_1, NULL), netshp_1),
+  cbind(st_set_geometry(cats_2, NULL), netshp_2)), 
+  row.names = NULL)
+
 head(WS_SCALE)
 ```
 
 # COMID Scale Metrics
 
-COMID scale metrics refer to attributes of individual stream channels,
-such as their sinuosity or the angle of confluence
+COMID scale metrics refer to attributes of individual stream channels
 
 ## Channel Shape
 
+channel shape includes the mean elevation and slope of the COMID
+provided by NHDPlusV2 and the sinuosity. Sinuosity is measured as the
+length of the stream channel divided by the straight line distance
+between the COMID inlet/outlet.
+
 ``` r
 planform <- chn_geom(network = network_1, elevslope = elevslope)
-#drop the smooth for mean
+
+#drop the NHDPlusV2 smoothed values
 planform <- subset(planform, select = -c(MAXELEVSMO, MINELEVSMO))
 head(planform)
 ```
 
 ## Confluence Attributes
+
+Confluence attributes include: Tributary angle defined as the angle that
+the tributaty and mainstem meet
+
+Area ratio is the catchment area of the tributary divided by the
+catchment area of the mainstem
+
+Confluence area is the catchment area upstream of the confluence
+
+Confluence order is the stream order directly downstream of the
+confluence
+
+Confluence class is the concatenation of the tributary and mainstem
+stream orders
 
 ``` r
 confl_attrs <- net_confl(network = network_1, vaa = vaa, flow = flow)
@@ -289,18 +346,24 @@ confl_attrs[confl_attrs$COMID==sites_1$COMID, ]
 
 ## Adding StreamCat Data
 
+The get StreamCat function extracts values from a given StreamCat data
+table for all COMIDs within a network
+
 ``` r
-#get streamcat lithology values for each COMID in the network
+#get lithology values for each COMID in the network
 lithology <- get_streamcat(comid = network_1$COMID, 
                            strcat_path = "Data/StreamCat",
                            csvfile = "Lithology", vpu = "17")
 
-#select columns with values
+#clean output: select columns with values
+#many lithology values are 0 for all COMIDs
 lithology <- subset(lithology, 
                     select = c("COMID", grep("Cat", names(lithology), value = T)))
 lithology <- lithology[,apply(lithology, 2, sum, na.rm = T)>0]
+```
 
-#predicted biological condition
+``` r
+#get predicted biological condition
 biocond <- get_streamcat(comid = network_1$COMID, 
                          strcat_path = "Data/StreamCat",
                          csvfile = "NRSA_PredictedBioCondition", 
@@ -327,7 +390,12 @@ head(COMID_SCALE)
 
 # Reach scale metrics
 
-Reaches are divisions of NHDPlus COMID
+In some instances users may want to use data at a finer resolution than
+COMID. We define reaches as divisions of NHPLUS Comids and provide a
+function that splits the COMIDs within a stream network into equal
+parts, identifies the point and creates lateral transects. These sf
+objects (reaches, midpoints, and transects) can be used to extract new
+data at finer resolutions.
 
 ## Creating Stream Network Reaches
 
@@ -362,18 +430,17 @@ gridExtra::grid.arrange(p1, p2, nrow = 1)
 ## extract data at midpoints and along transects
 
 ``` r
-#typically these data are at higher (finer) resolution 
-#than NHDPlus COMID
+#Use annual growing degree days from the National Phenology Network
 r <- raster("Data/AGDD_30yrAVG_365")
+agdd = raster::extract(r,
+                       st_coordinates(
+                         st_transform(net_pts, crs = crs(r))))
+
 agdd <- data.frame(COMID = net_pts$COMID, 
                    PointID = net_pts$PointID,
-                   AGDD = raster::extract(r, 
-                                          st_coordinates(
-                                            st_transform(net_pts, 
-                                                         crs = crs(r)))))
+                   agdd)
 
-
-#Valley width is lenght of lateral transect
+#Valley width is length of lateral transect
 valley_width<-data.frame(COMID = net_trn$COMID,
                          PointID = net_trn$PointID, 
                          vln = units::set_units(st_length(net_trn),NULL))
@@ -392,8 +459,11 @@ head(REACH_SCALE)
 ``` r
 #combine multiscale data
 StrNet_data <- cbind(WS_SCALE[1,], 
-                     merge(COMID_SCALE, REACH_SCALE, by = "COMID", 
+                     merge(COMID_SCALE, 
+                           REACH_SCALE, 
+                           by = "COMID", 
                            all.x = T))
+
 #select variables for clustering
 StrNet_vars <- names(StrNet_data)[!names(StrNet_data) %in% 
                                     c("COMID", "PointID", 
@@ -406,13 +476,13 @@ StrNet_data <- StrNet_data[complete.cases(StrNet_data[,StrNet_vars]),]
 head(StrNet_data[,c("COMID", "PointID", StrNet_vars)])
 ```
 
-## Clustering stream network data
+## Hierarchical Clustering Analysis
 
 ``` r
-#calculate dissimiilarity - gower allows for mixed data
+#calculate dissimiilarity 
 d <- daisy(StrNet_data[,StrNet_vars], metric = "gower")
 
-#heirarchal clustering using wards method   
+#Clustering using wards method   
 cl <- agnes(d, method = "ward")
 ```
 
@@ -426,7 +496,7 @@ StrNet_data$grps <- cutree(cl, 5)
 
 ``` r
 #plot Cluster Results
-#merge results witht the sampled reaches 
+#merge results with the sampled reaches 
 #retain all.x = T because some reaches were missing 
 #data remained unclassified
 net <- merge(net_rch, 
@@ -446,35 +516,42 @@ gridExtra::grid.arrange(p1, nrow = 1)
 # Quantifying Spatial Pattern
 
 Spatial pattern can refer to composition of configuration of habitat
-patches
+patches within the steam network. Below, each landscape metric is
+calculated for each patch type (i.e. class scale).
 
-## composition (Class scale)
+## Composition
 
 ``` r
-#merge adjacent habitat patches of the same type 
-net_HGP <- merge_lines(lines = st_transform(net, 5070), groupName = "grps")
+#merge adjacent habitat patches of the same type into continuous segment
+net_HGP <- merge_lines(lines = st_transform(net, 5070), 
+                       groupName = "grps")
 
-#create example composition metrics network 
+#create example composition metrics network
+#claculate the number and total and mean length,
+#of a given patch type
 HGP_cmp <- do.call(rbind,
                       lapply(split(net_HGP, net_HGP$grps), 
-                             function(x) data.frame(patch = unique(x$grps), 
-                                                    num = nrow(x), 
-                                                    tlen = sum(st_length(x)),
-                                                    meanlen = mean(st_length(x)))))
+                             function(x) 
+                               data.frame(patch = unique(x$grps), 
+                                          num = nrow(x), 
+                                          tlen = sum(st_length(x)),
+                                          meanlen = mean(st_length(x)))))
 HGP_cmp
 ```
 
-## Configuration (class scale)
+## Configuration
 
 ``` r
-
 #function sf_to_tidygraph adapted from #https://www.r-spatial.org/r/2019/09/26/spatial-networks.html 
 #Enables measurement of watercourse distance between 
 #habitat patches within the stream network
-
 graph <- sf_to_tidygraph(st_transform(net, 5070), directed = F)
+#here we calculate pairwise watercourse distances 
+#separating patches of type 2
 HGP_cnf <- patch_dist(graph, net_HGP, groupName = "grps", patch = "2")
 
+#claculate a modified dendritic connectivity index baised on watercourse 
+#distance between the patches 
 DCI_dist(plen_i = HGP_cnf$patch_i_len, 
          plen_j = HGP_cnf$patch_j_len, 
          dist_ij = HGP_cnf$d, mu = 12000)
